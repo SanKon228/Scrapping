@@ -1,0 +1,3 @@
+*/10 * * * * path/to/python3 path/to/main.py - using crontab we can run script every 10 minutes.
+
+or using file scripts.py but I would prefer first solution.
