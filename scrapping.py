@@ -24,12 +24,15 @@ def get_car_info():
         response = requests.get(f'https://auto.ria.com/uk/search/', params={
             'indexName': 'auto,order_auto,newauto_search',
             'categories.main.id': "1",
+            'price.currency': "1",
+            'custom.not': "-1",
             'abroad.not': '0',
             'damage.not': "0",
             'brand.id[0]': "79",
             'model.id[0]': "2104",
             'country.import.usa.not': '0',
-            'page': page
+            'page': page,
+            'size': 100
         })
 
         if response.status_code == 200:
@@ -57,4 +60,7 @@ def get_car_info():
 
         page += 1
 
+
     conn.close()
+
+#get_car_info()
