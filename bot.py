@@ -6,7 +6,75 @@ import sqlite3
 from bs4 import BeautifulSoup
 import json
 import asyncio
+import requests
 import io
+
+async def get_car_info(user_id):
+    page = 0
+    page_empty = False
+
+    conn = sqlite3.connect('database.sqlite3')
+    cursor = conn.cursor()
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS cars (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        brand TEXT,
+        price TEXT,
+        auto_ria_link TEXT UNIQUE, 
+        photos TEXT
+    );
+    ''')
+    conn.commit()
+
+    while not page_empty:
+        response = requests.get(f'https://auto.ria.com/uk/search/', params={
+            'indexName': 'auto,order_auto,newauto_search',
+            'categories.main.id': "1",
+            'price.currency': "1",
+            'custom.not': "-1",
+            'abroad.not': '0',
+            'damage.not': "0",
+            'brand.id[0]': "79",
+            'model.id[0]': "2104",
+            'country.import.usa.not': '0',
+            'page': page,
+            'size': 100
+        })
+
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            listings = soup.find_all('div', class_='content-bar')
+            if len(listings) == 0:
+                page_empty = True
+            else:
+                for car_info in listings:
+                    link = car_info.find('a', class_='m-link-ticket')['href']
+                    photo_url = car_info.find('img')['src']
+                    brand = car_info.find('span', class_='blue bold').get_text()
+                    price = car_info.find('div', class_='price-ticket').get_text(strip=True)
+                    
+                    cursor.execute("SELECT id, price FROM cars WHERE auto_ria_link = ?", (link,))
+                    car = cursor.fetchone()
+                    if car is None:
+                        cursor.execute('''
+                        INSERT INTO cars (brand, price, auto_ria_link, photos)
+                        VALUES (?, ?, ?, ?)
+                        ''', (brand, price, link, photo_url))
+                    else:
+                        car_id, old_price = car
+                        if old_price != price:
+                            await bot.send_message(user_id, f"Ціна на автомобіль {brand} змінилась з {old_price} на {price}.")
+                            cursor.execute('''
+                            UPDATE cars SET price = ? WHERE id = ?
+                            ''', (price, car_id))
+                    conn.commit()
+        else:
+            print('Failed to fetch data:', response.status_code)
+
+        page += 1
+
+    conn.close()
 
 async def parse_car_photos(url):
     async with aiohttp.ClientSession() as session:
@@ -28,7 +96,7 @@ async def download_photo(url):
             else:
                 return None
 
-API_TOKEN = '5302355669:AAFwboWIlaCWqG-Xhg12Q2ntCCsMk3OCvH8'  # Replace with your bot token
+API_TOKEN = '5302355669:AAFwboWIlaCWqG-Xhg12Q2ntCCsMk3OCvH8'
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
@@ -101,7 +169,25 @@ async def send_car_info(user_id, car):
     else:
         await bot.send_message(user_id, car_message)
 
+def get_registered_user_ids():
+    try:
+        with open('user_data.json', 'r') as file:
+            user_data = json.load(file)
+            return list(user_data.keys())
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        return []
+
+async def periodic_car_info_update():
+    user_ids = get_registered_user_ids()
+    while True:
+        for user_id in user_ids:
+            await get_car_info(user_id)
+        await asyncio.sleep(60)
+
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
+    loop.create_task(periodic_car_info_update())
     loop.create_task(check_and_send_new_cars())
     executor.start_polling(dp, skip_updates=True)
